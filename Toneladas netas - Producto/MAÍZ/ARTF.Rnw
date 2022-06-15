@@ -1,0 +1,823 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[spanish, activeacute, mexico]{babel}
+\usepackage[T1]{fontenc}
+\usepackage{pdfsync}
+\usepackage[nottoc]{tocbibind}
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{amssymb}
+\usepackage{graphicx}
+\usepackage[left=2.00cm, right=2.00cm, top=1.50cm, bottom=2.00cm]{geometry}
+\author{Roberto Carlos Santos  Alonzo}
+\spanishdecimal{.}
+\usepackage{fancyhdr}[0.1 pt]
+\usepackage{lscape}
+\pagestyle{fancy}
+\fancyfoot[R]{Roberto Carlos Santos Alonzo}
+\begin{document}
+\newpage
+\def\contentsname{CONTENIDO}
+  {\tableofcontents}
+\newpage
+<<echo = FALSE>>=
+#Cargamos las librerías que vamos a ocupar
+library(readr) #Para poder leer nuestra base de datos
+library(quantmod) #Me sirve para poder transformar fechas en formato Mes/año
+library(dplyr)#Para poder manipular bases de datos.
+library(ggplot2) #Para poder hacer gráficas.
+library(xts)
+library(forecast)
+library(TTR)
+library(tseries)
+@
+\newpage
+\section{Análisis}
+Realizando un histograma de frecuencias absolutas (La tabla dada ya pasó por un filtrado en donde se quedan con los 5 productos con mayor volumen de carga) para ver cuales son los 5 productos con mayor volumen de carga.
+
+<<echo= FALSE>>=
+#Dirección en donde tenemos la base de datos a ocupar
+setwd("C:\\Users\\81799\\Downloads\\Servicio Social - Git hub\\Toneladas - Netas\\Junio_Maiz")
+
+ARTF <- read.csv("ARTF.csv")#Cargamos base de datos con todos los productos 
+ARTF <- ARTF[,-1] #Eliminamos la columna de los índices
+
+ARTF$FECHA <- as.yearmon(ARTF$FECHA)#Originalmente ya esta en formato fecha, entonces solamente lo convertimos en clas yearmon
+PRODUCTOS <- read.csv("Productos.csv") #Cargamos la base de datos de los 10 productos con mayor toneladas netas
+colnames(PRODUCTOS)[1] <- "FECHA" #Cambio el nombre de la columna 1 del dataFrame PRODUCTOS y le asigno el nombre de Fecha.
+PRODUCTOS$FECHA <- as.yearmon(PRODUCTOS$FECHA)#Como ya esta en formato mes/año, entonces solamente le asigno su clase.
+rownames(PRODUCTOS)[99] <- "TOTAL"
+#-------------------Histograma del total de las Toneladas Netas
+H  <- ARTF %>% group_by(PRODUCTOS) %>% summarise(TOTAL = sum(TONELADAS_NETAS)) #Hago un DF del Total de Toneladas de cada Producto
+H <- H[order(H$TOTAL , decreasing = T ), ][1:5, ] #Ordeno el DF de forma decreciente y después me quedó con las primeros 10 filas 
+#Histograma Total de Frecuencias Absolutas en donde se muestran los 5 productos con mayor Toneladas Netas.
+ggplot(H , aes(x=PRODUCTOS , y=TOTAL ,
+               label =scales::comma(TOTAL),
+               fill = as.factor(PRODUCTOS)))+
+  geom_bar(show.legend = T, stat = "identity" )+
+  labs(title = "Los 5 productos con mayor Toneladas Netas de Enero/2014 a Febrero/2022",
+       x = "Productos", y= "Toneladas Netas")+
+  scale_y_continuous(labels = scales::comma )+
+  theme(legend.position = "bottom", legend.text = element_text(size=8),
+        legend.title =element_text(size = 0, color = "black"),
+        axis.text.x = element_text(size = 0) )+
+  geom_text(size=4, position = position_stack(vjust = 1.1))
+@
+
+
+En la cual podemos observar que los productos con mayor volumen de carga ordenados de forma descendente quedan de la siguiente manera: 
+\begin{itemize}
+\item   Maíz con 127,061,018 
+\item Cemento con 95,856,381
+\item  Contenedores con 73,492,892
+\item Mineral de Fierro con 64,945,578
+\item Láminas, Planchas de Fierro y Acero con 59,198,637 
+\end{itemize}
+ Haciendo el mismo histograma de frecuencias absolutas con la diferencia de que ahora vamos a poner en el histograma el comportamiento del producto respecto a las toneladas netas transportadas año con año.
+
+
+<<echo=FALSE>>=
+#-------Histograma del deslgose total por año de las Toneladas Netas
+colnames(PRODUCTOS)[2:6];
+H_2  <- ARTF %>% group_by(PRODUCTOS, Year) %>% summarise(TOTAL = sum(TONELADAS_NETAS)) #Hago un DF del Total de Toneladas de cada Producto
+H_2 <- H_2 %>%
+  filter(PRODUCTOS %in% c("MAÍZ", "CEMENTO",
+                          "CONTENEDORES","MINERAL DE FIERRO",
+                          "LÁMINAS Y PLANCHAS DE FIERRO Y ACERO"))
+
+ggplot(H_2 , aes(x=PRODUCTOS , y=TOTAL ,
+               label =scales::comma(TOTAL),
+               fill = as.factor(Year)))+
+  geom_bar(show.legend = T, stat = "identity" )+
+  labs(title = "Desglose de los 5 productos con mayor Toneladas Netas de Enero/2014 a Febrero/2022 por año",
+       x = "Productos", y= "Toneladas Netas")+
+  scale_y_continuous(labels = scales::comma )+
+  theme(legend.position = "bottom", legend.text = element_text(size=8),
+        legend.title =element_text(size = 0, color = "black"),
+        axis.text.x = element_text(size = 9) )+
+  geom_text(size=4, position = position_stack(vjust = 0.5))
+@
+
+Dado un análisis previo acerca del comportamiento de los 5 productos con mayor volumen, procedemos a realizar el gráfico de la serie temporal de dichos productos. \\
+<<echo=FALSE>>=
+#Serie temporal de los 5 productos con mayor toneladas netas del 2014 al 2022
+
+#El DataFrame de PRODUCTOS lo volvemos en clase xts para poder hacer nuestras gráficas de Series de tiempo 
+
+Ton_Netas_P <- xts(PRODUCTOS[-99,2:6], order.by = PRODUCTOS[-99,1] )
+color_T_N_P <- rainbow(ncol(Ton_Netas_P)) #Le asigno un color diferente por cada columna
+Serie_Temporal <- plot.xts(Ton_Netas_P ,  col = color_T_N_P,
+         legend.loc = "topleft", lwd = 2,
+         cex = 0.5, ylab = "Toneladas Netas", xlab = "Tiempo",
+         cex.axis = 0.7,
+         main = "Toneladas Netas - Productos"
+         )
+Serie_Temporal
+@
+
+
+
+
+
+\section{MAÍZ}
+\subsection{Parcelas Estacionales}
+Una \textbf{gráfica estacional} es similar a una gráfica de tiempo, excepto que los datos se grafican contra las '' estaciones '' individuales en las que se observaron los datos. Analicemos la siguiente serie de tiempo.
+
+
+<<echo=FALSE>>=
+Maiz_ts <- ts(Ton_Netas_P[,1], frequency = 12, star = c(2014,1))
+#Gráfica de la serie temporal del Maíz respcto a sus Toneladas Netas.
+plot.xts(Ton_Netas_P[,1] , col = color_T_N_P ,
+                         legend.loc = "topleft" , lwd = 2,
+                         cex = 0.5, ylab = "Toneladas netas", xlab ="Tiempo",
+                         cex.axis = 0.7,
+                         main = "Toneladas Netas - Productos ")
+@
+
+Ahora de su gráfica estacional, tenemos lo siguiente: \\ 
+
+<<echo=FALSE >>=
+#Gráfica de las parcelas estacionales del Maíz
+ggseasonplot(Maiz_ts,year.labels =T, col = rainbow(9)) #Gráfica de las parcelas estacionales del maíz, nota: ggseasonplot solo acepta objetos de claase ts()
+@
+
+Estos son los mismos datos que se mostraron anteriormente, pero los datos de cada temporada se superponen. Un \textbf{ gráfico estacional}  permite ver más claramente el patrón estacional subyacente y es especialmente útil para identificar los años en los que cambia el patrón.
+
+\subsection{Gráfica de subseries estacionales}
+Una gráfica alternativa que enfatiza los patrones estacionales es donde los datos de cada temporada se recopilan juntos en mini gráficas de tiempo serparadas.  \\ 
+Una gráfica de sub-serie estacional faceta la serie temporal por cada estación en el período estacional. Esta faceta forman gráficos de series de tiempo más pequeños que consisten en datos solo de esa temporada. Si tuviera varios años de datos (mensuales, trimestrales, diarios, anuales, etc), el gráfico resultante mostraría un gráfico de serie de tiempo separado por cada período (ya sea mes, año, días) que se este trabajando la serie de tiempo.
+
+
+<<echo=FALSE>>=
+#Gráfica de subseries estacionales.
+ggsubseriesplot(Maiz_ts) #Hacemos la gráfica de la subserie estacional del maíz.
+@
+
+\textbf{Las lineas horizontales azules} indican las medias de cada mes. Esta forma de gráfico permite ver claramente el patrón estacional subyacente y también muestra los cambios en la estacionalidad a lo largo del tiempo. Es especialmente útil para identificar cambios dentro de estaciones particulares.
+Notemos que la serie de tiempo esta dada en forma mensual, es por eso que hace un gráfico estacional separado por mes.
+
+\subsection{ Componente generales de la serie temporal}
+ Al describir las series temporales, podremos encontrar palabras como ''tendencia'' y ''estacionalidad'', las cuales se definen de la siguiente manera:
+ \begin{itemize}
+ \item \textbf{Tendencia:}  Una \textit{tendencia} existe cuando hay un aumento o disminución a largo plazo en los datos. No tiene que ser lineal. A veces nos referiremos a una tendencia como ''cambio de dirección'', cuando podría pasar de una tendencia creciente a una tendencia decreciente.  
+\item \textbf{Estacional:} Un patrón \textit{ estacional}  ocurre cuando una serie de tiempo se ve afectada por factores estacionales como la época del año o el día de la semana. La estacionalidad es siempre de un período fijo y conocido. 
+\item \textbf{Cíclico:} Un \textit{ciclo} ocurre cuando los datos exhiben subidas y bajadas que no tienen una frecuencia fija. Estas fluctuaciones generalmente se deben a las condiciones económicas y, a menudo, están relacionadas con el ''ciclo económico''.
+\end{itemize}
+Mucha gente confunde el comportamiento cíclico con el comportamiento estacional, pero en realidad son bastantes diferentes. Si las fluctuaciones no son de una frecuencia fija entonces son cíclicas; si la frecuencia no cambia y está asociada con algún aspecto del calendario, entonces el ''patrón es estacional''. En general, la duración media de los ciclos es mayor que la duración de un patrón estacional. y las magnitudes de los ciclos tienden a ser más variables que las magnitudes de los patrones estacionales. Muchas series de tiempo incluyen tendencia, ciclos y estacionalidad. Al elegir un método de pronóstico, primero necesitaremos identificar los patrones de series de tiempo en los datos y luego elegir un método que pueda capturar los patrones correctamente.
+
+Si asumimos una \textbf{ descomposición aditiva}, entonces podemos escribir: $$y_t=S_t+T_t+R_t$$ Donde: 
+
+\begin{itemize}
+\item $y_t$ son los datos.
+\item $T_t$ es el componente de ciclo de tendencia.
+\item $R_t$ es el comportamiento restante.
+\end{itemize}
+todo en el período $t$. Alternativamente, una \textbf{descomposición multiplicativa} se escribiría como: $$y_t=S_t\cdot T_t \cdot R_t$$. 
+
+La \textbf{ descomposición aditiva}  es la más adecuada si la magnitud de las fluctuaciones estacionales, o la variación en torno a la tendencia-ciclo, no varía con el nivel de la serie temporal. Cuando la variación alrededor del ciclo tendencia, parece ser proporcionada al nivel de la serie temporal, entonces es más apropiada una \textbf{descomposición multiplicativa} . Las descomposiciones multiplicativas son comunes con las series temporales económicas. \\ 
+Una alternativa al uso de una descomposición multiplicativa es primero transformar los datos hasta que la variación en la serie parezca estable a lo largo del tiempo y luego usar una descomposición aditiva. Cuando se ha usado una transformación logarítmica, esto es equivalente a usar una descomposición multiplicativa porque: 
+
+$y_t=S_t\cdot T_t \cdot R_t$ es equivalente a $log\;y_t =log\; S_t+log \;T_t +log\; R_t$ 
+
+
+Visualizando de mejor manera las diferencias entre los componentes que integran la serie de tiempo
+(MAIZ), hacemos lo siguiente:
+\subsubsection{Descomposición por la función decompose() de R  }
+Utilizando la función \textit{decompose()} en tipo aditiva de $R$, tenemos lo siguiente:
+<<echo=FALSE>>=
+#Descomposición de la serie temporal del Maíz 
+decompose(Maiz_ts) 
+@
+El resultado anterior muestra los componentes de una descomposición dada la función \textit{decompose()} de $R$. \\ 
+Podemos graficar todos los componentes en una sola figura de la siguiente manera: \\ 
+<<echo=FALSE>>=
+#Gráfica de la descomposición del maíz.
+autoplot(decompose(Maiz_ts))+
+  labs(title = "Toneladas Netas - Productos de Maíz (Por componentes)",
+       x="Período (Mensual)", y="")+theme_gray() #Con lo siguiente aquí tenemos la descomposición de la serie temporal del maíz en forma aditiva
+@
+La columna \textbf{trend}  (que contiene la tendencia-ciclo $T_t$) que sigue el movimiento general de la serie, ignorando cualquier estacionalidad y fluctuaciones aleatorias. Como se muestra en la siguiente gráfica
+<<echo=FALSE>>=
+#Gráfica de la serie temporal del maíz con su descomposición (tendencia)
+Decom_Maiz_aditiva_y_Serie_original_Maiz <- cbind(Maiz_ts,decompose(Maiz_ts)$trend) #Obtengo la serie original y la tendencia por el método decompose del Maiz 
+plot(Decom_Maiz_aditiva_y_Serie_original_Maiz, plot.type = "single",
+     col = c("red","blue"),lwd=1:1 , lty=1:1, ylab = "Total de Maíz",
+     xlab = "Tiempo (meses)", main = "Suavizado por el método decompose ()")
+legend(x="topleft", legend =c("Original", "Decompose()"),col =c("red", "blue"),lty=1:1)
+
+@
+
+Podemos comprender a la \textbf{tendencia} de la serie de tiempo del maiz como el comportamiento a largo
+plazo de la serie. Visualizando únicamente la tendencia, tendremos lo siguiente:
+
+
+<<echo=FALSE>>=
+#Gráfica de la tendencia del Maíz
+autoplot(decompose(Maiz_ts) $trend)+
+  labs(title = "Toneladas Netas - Productos de Maíz (Por componentes)",
+       x="Período (Mensual)", y="")+theme_grey()
+@
+
+
+Podemos observar que la tendencia tuvo un comportamiento sostenido en la gran parte del período, esta también tuvo un importante cambio alrededor de Julio-$2016$ a Diciembre-$2016$ y Febrero-$2019$ a
+Octubre-$2019$, donde prácticamente paso de tener un comportamiento creciente a uno decreciente.
+
+
+
+\subsection{Análisis de correlograma}
+
+El análisis del correlograma es una opción que nos ayudará bastante a analizar la interdependencia de los valores de observación. La idea con la que debemos conservar al manejar correlogramas es que sirven para describir la presencia o ausencia de correlación en los datos de las series temporales,
+indicando si las observaciones pasadas influyen en las actuales. \\ \\ 
+Ahora veremos la correlación que tienen los datos , es decir, una correlación mide el nivel de semejanza entre una secuencia de hace varios períodos y datos actuales. La secuencia de hace varios períodos
+atrás se llama "retraso" o "lag" en inglés, porque es una versión retrasada de la original. \\ \\
+
+Dada una serie de tiempo $Y_t$, se define su \textbf{ función de auto-correlación de retraso k} como: $$\varphi _k(t)=corr(Y_t,Y_{t-k})$$ 
+
+Así como la \textbf{correlación}  mide el alcance de una relación lineal entre dos variables, la \textbf{autocorrelación}  mide la relación lineal entre los \textit{ valores rezagados} de una serie de tiempo. Hay varios coeficiente de autocorrelación, correspondientes a cada panel en el gráfico de retardo, es decir, $\varphi _k(t)=corr(y_t,y_{t-k})$. \\ \\ Por ejemplo:
+\begin{itemize}
+\item $\varphi _1(t)$ mide la relación entre $y_1$ y $y_{t-1}$.
+\item $\varphi _2(t)$ mide la relación entre $y_t$ y $y_{t-2}$, y así sucesivamente.  
+\end{itemize}
+
+El valor de $\varphi _k(t)$ se puede escribir como  $$ \varphi _k =\frac{\sum \limits _{t=k+1}^T (y_t-\bar{y})(y_{t-k}-\bar{y}) }{\sum \limits _{t=1}^T (y_t-\bar{y})^2} $$ donde $T$ es la duración de la serie temporal.
+Los coeficientes de autocorrelación componen la \textit{función de autocorrelación} o  $ACF$ \\ \\
+
+Las dos funciones de \textbf{auto-correlación} que podemos manejar en los pronósticos de Series de Tiempo son: 
+
+\begin{enumerate}
+\item \textbf{Función de Auto-correlación simple:} Mide la autocorrelación entre dos variables separadas por $k$ períodos, o , en otras palabras, el grado de asociación lineal que existe entre dos variables del mismo proceso aleatorio.
+\item \textbf{Función de Auto-Correlación parcial:} Mide la auto-correlación entre dos variables separadas $k$ períodos cuando no se considera la precedencia de la dependencia creada por los retardos intermedios que hay entre ambas. En otras palabras, esta encuentra la auto-correlación que existe entre dos variables separadas $k$ períodos descontando los posibles efectos debidos a las variables intermedias. 
+
+\end{enumerate}
+
+
+\subsubsection{ Autocorrelación simple}
+
+En seguida se darán los valores y el gráfico de las auto-correlaciones simples del Maiz
+
+
+
+<<echo=FALSE>>=
+#Gráfica de Autocorrelación simple
+(acf(ts(Maiz_ts), lag.max=36, 
+     main = "Auto-Correlación Simple del Maiz",
+     xlab ="k-períodos"))
+@
+Dado los valores y la gráfica de auto-correlación simple, tenemos que $\varphi _1 =0.608$ y $\varphi _{12}=0.547$, es decir , es conveniente ''predecir'' el futuro ya sea con $1$ o $12$ retrasos (Entre más cercano a 1 es mejor). Lo anterior lo podremos expresar de la siguiente manera:
+\begin{align*}
+\varphi _1(t)&=corr(X_t,X_{t-1})=0.608 \\
+\varphi _{12}(t)&= corr(X_t,X_{t-12})=0.547
+\end{align*}
+\textbf{Tendencia y estacionalidad en parcelas ACF}
+\begin{itemize}
+\item Cuando los \textbf{datos tienen una tendencia}, las autocorrelaciones para pequeños retrasos tienden a ser grandes y positivas porque las observaciones cercanas en el tiempo también tienen un valor cercano. Entonces, el $ACF$ de una serie de tiempo con tendencia tiende a tener valores positivos que disminuyen lentamente a medida que aumentan los retrasos.
+\item Cuando los \textbf{datos son estacionales}, las auto-correlaciones serán mayores para los retrasos estacionales (en múltiplos de período estacional) que para otros retrasos.
+\item Cuando los \textbf{ datos son de tendencia y estacionales}, se ve una combinación de estos efectos.
+\end{itemize}
+\subsubsection{Gráficas de Retraso}
+
+Un gráfico de retraso es un tipo especial de gráfico de dispersión en el que el eje $x$ representa el conjunto de datos con algunas unidades de tiempo atrás o adelante en comparación con el eje $y$. La diferencia entre estas unidades de tiempo se llama retraso y se representa por $k$ \\
+<<echo=FALSE>>=
+#Gráficas de retraso
+gglagplot(Maiz_ts, do.lines =FALSE , diag = TRUE , diag.col = "red")
+@
+La relación es fuertemente positiva en el rezago $1$ y $12$ (  $\varphi _1$ y $\varphi _{12}$ ) lo que refleja la fuerte estacionalidad de los datos.
+\subsection*{Auto-correlación parcial}
+En seguida se darán los valores y la gráfica de \textit{auto-correlación parcial} del Maiz. \\
+<<echo=FALSE>>=
+#Gráfica de Auto.correlación parcial
+(pacf(ts(Maiz_ts), lag.max=36, 
+      main = "Auto-Correlación Simple del Maiz",
+      xlab ="k-períodos"))
+@
+En este caso, es solamente conveniente tomar $k=1$ retraso para poder predecir mi futuro, ya que vemos que $\varphi _1=corr(Y_t,Y_{t-1})=0.608$, donde los demás valores ya están muy alejados de este valor, teniendo en cuenta que este tipo de auto-correlación no toma en cuenta los efectos intermedios que hay entre el intervalo $(t,t-k)$
+
+
+\subsection{Técnicas de suavizado}
+
+
+\subsubsection{ Suavizado de la media móvil centrado }
+El método clásico de descomposición de series de tiempo se originó en la década de $1920$ y fue amplia-mente utilizado hasta la década de $1950$. Todavía constituye la base de muchos métodos de descomposición de series temporales, por lo que es importante entender como funcionan. El primer paso en una descomposición clásica es usar un método de promedio móvil para estimar el ciclo de tendencia, por lo que comenzaremos analizando los promedios móviles.
+
+Una media móvil de orden $m$ se puede escribir como:$$\hat{T}_t=\frac{1}{m}\sum _{j=-k}^{k}y_{t+j}$$ donde $m=2k+1$. Es decir, la estimación de la tendencia-ciclo en el momento $t$ se obtiene promediando los valores de la serie temporal dentro de $k$ períodos de $t$. También es probable que las observaciones que están cercanas en el tiempo tengan un valor cercano. Por lo tanto, el promedio elimina parte de la aleatoriedad en los datos, dejando un componente suave de ciclo-tendencia. A esto le llamamos $m$\textbf{-MA}, lo que significa un promedio móvil de orden $m$. \\ \\
+El orden de la media móvil determina la suavidad de la estimación del ciclo de tendencia. En general, un pedido más grande significa una curva más suave.
+<<echo=FALSE>>=
+#Promedio móvil centrado de orden m
+MM_Maiz<-data.frame(Ton_Netas_P) %>% select(0, MAÍZ) %>% mutate("5-MA"=rollmean(MAÍZ,k=5,fill=NA)) #Promedio dado y_t en medio
+MM_Maiz
+@
+
+En la última columna de esta tabla, se muestra una media móvil de orden $m=5$, que proporciona una estimación de la tendencia-ciclo.
+\begin{itemize}
+ \item El primer valor de esta columna es el promedio de las primero $5$ observaciones, $ene.2014-mayo.2014$, es decir:
+\begin{align*}
+\frac{y_a+y_2+\cdots +y_5}{5}
+\end{align*}
+ 
+ \item El segundo valor en la columna \textbf{5-MA} es el promedio de los valores para $feb.2014-jun.2014$ y así sucesivamente.
+\end{itemize}
+
+Cada valor en la columna \textbf{ 5-MA} es el promedio de las observaciones en la ventana de $5$ meses centrada en el mes correspondiente. 
+
+La columna \textbf{5-MA} contiene los valores de $\hat{T}_t$ con $m=2k+1=5$ y $k=2$. No hay valores ni para los primeros dos años ni para los dos últimos años, porque no tenemos observaciones en cada lado.
+<<echo=FALSE>>=
+m5_MA <- ts(MM_Maiz[,2], frequency =12 , start=c(2014,1)) #Para poder graficar 5-MA lo convertimos en class ts
+Maiz_ts_y_5_MA <- cbind(Maiz_ts, m5_MA)#Obtengo los datos originales y el del promedio móvil centrado
+plot(Maiz_ts_y_5_MA, plot.type = "single",
+     col = c("red","blue"),lwd=1:1 , lty=1:1, ylab = "Total de Maíz",
+     xlab = "Tiempo (meses)", main = "Suavizado por el método 5-MA")
+legend(x="topleft", legend =c("Original", "5-MA"),col =c("red", "blue"),lty=1:1) 
+@
+
+
+\subsubsection{Suavizado de la media móvil hacía atrás}
+
+El método de \textbf{Promedio Móvil Simple} utiliza información histórica del desempeño de la variable que se desea pronosticar para poder generar un pronóstico de la misma a futuro. Es decir, se considera válida la premisa que el \textit{pasado} es de utilidad para predecir el \textit{futuro}. Su notación matemática es de la siguiente forma: 
+$$SMA=\frac{x_1+x_2+\cdots +x_n}{n}$$ donde $x_i$ son los valores de la variable, por tanto $SMA$ es un promedio aritmético de $k$ períodos atrás. \\ \\
+
+Dado que en la auto-correlación simple como en la parcial $\varphi _1$ dio casi cercano a $1$, entonces para aplicar el método de medias móviles hacemos $k=1$. Es decir: $Y_t=\frac{X_t+X_{t-1}}{2}$ para $t>1$
+<<echo=FALSE>>=
+#Promedio móvil k período hacía atrás
+Maiz_SMA <- SMA(Maiz_ts,n=2) #Promedio hacia atras, es decir (y_{t}+t_{t-1})/2
+Maiz_Suavizados <- cbind(Maiz_ts,Maiz_SMA) #Para hacer la gráfica
+plot(Maiz_Suavizados, plot.type = "single", col = c("red", "blue"),
+     lwd=1:1, lty=1:1, ylab = "Total de Maiz", xlab="Tiempo (meses)",
+     main="Suavizado por el médoto SMA con k=1 retraso")
+legend(x="topleft", legend=c("Originaal", "SMA(k=1)"),
+       col = c("red", "blue"), lty=1:1)
+@
+
+
+
+
+Tenemos que $X_1=1037733.6$ (Valor de toneladas netas en Enero/2014 ) y $X_2=841936.6$ ( Valor de toneladas netas en Febrero/2014 ), entonces dado lo anterior, tendremos que: $Y_2=\frac{X_2+X_1}{2}$, es decir, El valor predictor para Febrero/2014 ( $Y_2$ ) es $939,835.1$
+
+\subsubsection{Suavizado por Método de Holt-Winters}
+
+En este método se toma en cuenta que contribuyen, como la \textbf{tendencia} y la \textbf{estacionalidad}, es decir, este método lleva a cabo un suavizado exponencial en la presencia de tendencias y estacionalidad. Utilizando el \textbf{packages forecast} para llevar a cabo este método.
+
+<<echo=FALSE>>=
+#Suavizado por Holt-Winters
+HoltWinters(Maiz_ts)
+@
+
+Con lo anterior, tenemos que la gráfica a través de este método nos queda de la siguiente manera:
+
+<<echo=FALSE>>=
+#Gráfica del suavizado por Holt-Winters
+plot(HoltWinters(Maiz_ts), col = "red", col.predicted = "blue")
+legend(x="topleft", 
+       legend=c("Original", "Holt-Winters filtering"),
+       col = c("red", "blue"), lty=1:1)
+@
+
+\subsubsection{Suavizado por la función ETS() de R}
+El suavizado en R hace este procedimiento de una manera más sencilla con la función \textit{ets()} de la paquetería TTR. El código nos quedaría de la siguiente manera:
+<<>>=
+Suavizado_Maiz_R <- ets(Maiz_ts, model = "ZZZ") #Suavizado por la función ets() en forma automatica
+@
+
+Cuando se pone \textbf{model=''ZZZ''} le indicamos a $R$ que nos calcule cual es el método más conveniente. En model = ''Errores, Tendencia, Estacionalida'', los cuales podremos utilizar parámetros de la siguiente manera:
+\begin{itemize}
+\item N = No hacer caso. 
+\item A = Tipo aditiva.
+\item M = Tipo Multiplicativa.
+\item Z = Que R calcule el tipo que se va a requerir.
+\end{itemize} 
+\subsubsection*{Coeficientes del suavizado}
+
+<<echo=FALSE>>=
+Suavizado_Maiz_R #Obtener los valores del suavizado
+@
+Lo anterior, tenemos que $R$ nos da un modelo de la forma:
+\begin{itemize}
+\item Error de tipo aditivo.
+\item Tendencia no hacer caso.
+\item Estacionalidad de tipo aditivo 
+\end{itemize}
+\subsubsection*{ Descomposición de la serie por el método ETS()}
+La descomposición del modelo anterior queda de la siguiente manera: 
+
+<<echo=FALSE>>=
+plot(Suavizado_Maiz_R)#Gráfica del suavizado ets()
+@
+
+\subsubsection*{Gráfica del suavizado ETS() vs original}
+
+Haciendo una gráfica de la serie maíz con el suavizado exponencial por $R$, tendremos lo siguiente:
+
+<<echo=FALSE>>=
+plot(Maiz_ts, main = "Maiz Enero/2014 - Febrero/2022" )
+lines(Suavizado_Maiz_R$fitted , col = "red") #Suavizado Exponencial por R
+legend(x="topleft", legend = c("Original", "Suavizado Exponencial por R"),
+       col = c("black", "red"), lty=1:1 ) #Gráfica del suavizado vs valores originales
+
+@
+\subsection{Pruebas de Estacionariedad}
+Recordando... 
+\subsection*{P-valor} 
+Con base en los datos proporcionados es que se puede realizar la prueba, y así determinar si se puede rechazar o no la hipótesis nula; la forma de determinar esto es con base en los diferentes estadísticos, o bien, usando el p-valor de la prueba. La forma más sencilla de saber que es el p-valor, es verlo como la probabilidad de rechazar la hipótesis nula cuando esta sea verdadera. Por lo tanto:
+\begin{itemize}
+\item Si p-valor $<\alpha $ , entonces se puede rechazar la hipótesis nula (Se acepta $H_a$ ).
+\item  Si p-valor$>\alpha  $, hay evidencia para que \textbf{NO} se rechace la hipótesis nula (Se acepta $H_0$ )
+\end{itemize}
+
+
+\subsection*{Prueba de Dickey-Fuller Aumentada para raíz unitaria} 
+\begin{align*}
+H_0&= \textit{No estacionaria (Raíz Unitaria)} .\\
+H_a&=\textit{Es estacionaria.}
+\end{align*}
+
+ 
+ \subsection*{Prueba de Phillips-Perron}
+Es una modificación de la prueba de Dickey-Fuller. Esta prueba corrige la auto-correlación y heterocedasticidad (Varianza NO constante) en los errores para comprobar la existencia de la serie. 
+\begin{align*}
+H_0&= \textit{No estacionaria (Raíz Unitaria)} .\\
+H_a&=\textit{Es estacionaria.}
+\end{align*}
+ Una manera de corregir la NO estacionariedad es utilizando diferencias 
+\subsection*{ Prueba Ljung Box }
+\begin{align*}
+H_0&= \textit{Ruido Blanco)} .\\
+H_a&=\textit{NO hay Ruido Blanco.}
+\end{align*}
+\subsection*{Ruido Blanco}
+El ruido blanco cumple las siguientes características: 
+\begin{align*}
+E[ \varepsilon _t]&=0\textit{,es decir, media igual a} 0.\\ 
+Var[\varepsilon _t]&=c\textit{, es decir, varianza constante.} \\
+Cov(\varepsilon _t, \varepsilon _{t-k})&=0\textit{, es decir, no hay correlación}
+\end{align*}
+
+
+Siguiendo la  \textbf{metodología de Box-Jenkins}, lo primero sería realizar las pruebas de estacionariedad (\textit{Prueba de Dickey-Fuller aumentada} y \textit{ Phillips-Perron}) para comprobar que la serie sea o no estacionaria. 
+\subsubsection{Prueba de Dickey-Fuller aumentada }
+Para realizar la prueba de Dickey-Fuller aumentada sobre la serie que estamos ocupando (MAÍZ), utilizamos el siguiente código:
+
+<<echo=FALSE>>=
+adf.test(Maiz_ts, alternative = "stationary", k=0)#Prueba de Dickey-Fuller aumentada
+@
+Con un valor del p-valor del $0.01$, menor al $\alpha = 0.05$ nivel de significancia de la prueba, se acepta la hipótesis alternativa ($H_a$ ) y \textbf{ rechazamos la hipótesis nula ($H_0$ )}, lo que contrasta que la serie presenta un\textbf{comportamiento Estacionario} ( $p-valor<\alpha  $ ) .  \\   Para comparar los resultados de la prueba de Dickey-Fuller aumentada utilizaremos la \textit{ Prueba Phillips-Perron} y comprobaremos si esta igual señala la existencia de un comportamiento ESTACIONARIO.
+
+
+\subsubsection{Prueba de Phillips-Perron}.
+
+<<echo=FALSE>>=
+pp.test(Maiz_ts , alternative = "stationary" )#Prueba de Phillips-Perron
+@
+
+Con un p-valor menor al 0.05 nivel de significancia, al igual que la \textit{ prueba Dickey-Fuller Aumentada}, la prueba de Phillips-Perron contrasta que la serie es una \textbf{serie estacionaria}.
+
+\subsubsection*{Conclusión} 
+
+
+Dada estas dos pruebas, tenemos como conclusión que $d=0$, entonces tendremos que encontrar un proceso de la forma $ARMA(p,q)=ARIMA(p,0,q)$
+
+\subsection{ARIMA(p,d,q)}
+
+
+Dada la prueba de estacionariedad, podemos confirmar que la serie \textit{  Maiz\_ts} se puede considerar como un \textbf{proceso estacionario}, y que, a su vez este se puede modelar a partir de un proceso $AR(p)$ y $MA(q)$; es decir, un \textbf{proceso $ARMA(p,q)$ estacionario}. \\ 
+Dentro de la metodología estándar de estimación de modelos ARMA, el proceso se puede realizar a partir de candidatos posibles que puedan modelar adecuadamente el \textit{comportamiento estocástico de la
+serie}. Por lo cual propongo 5 candidatos a modelos $ARIMA(p,d,q)$, los cuales son:
+\begin{itemize}
+\item $ARIMA(1,0,1)$
+\item $ARIMA(1,0,0)$
+\item $ARIMA(2,0,1)$ 
+\item $ARIMA(1,0,2)$ 
+\item $ARIMA(0,0,1)$
+\end{itemize}
+
+
+El objetivo de esto será comparar y ver cual de estos candidatos tiene el menor \textbf{criterio de información}. \\  El código que ocuparemos para estimar los procesos ARIMA seleccionados sobre la serie es el siguiente:
+<<>>=
+ModA_ARIMA =arima(Maiz_ts , order = c(1,0,1))
+ModB_ARIMA =arima(Maiz_ts , order = c(1,0,0))
+ModC_ARIMA =arima(Maiz_ts , order = c(2,0,1))
+ModD_ARIMA =arima(Maiz_ts , order = c(1,0,2))
+ModE_ARIMA =arima(Maiz_ts , order = c(0,0,1))
+@
+
+
+\subsubsection{Criterios de Información.}
+El \textit{Criterio de Información de Akaike(AIC)} son medidas de la calidad relativa de un modelo que representan el ajuste y el número de términos en el modelo. Este criterio se utiliza para comparar diferentes modelos. Sin embargo, el modelo con el valor más pequeño para un conjunto de predictores \textbf{ NO necesariamente ajusta los datos adecuadamente.} Utilice también pruebas y gráficas de residuos para evaluar que tan bien se ajusta el modelo a los datos.
+
+El código que ocuparemos para comparar los \textit{ criterios de información} de los modelos propuestos es:
+
+<<>>=
+ModA_ARIMA$aic
+ModB_ARIMA$aic
+ModC_ARIMA$aic
+ModD_ARIMA$aic
+ModE_ARIMA$aic
+@
+
+Podemos observar que al hacer la comparación de modelos utilizando el \textbf{Criterio de Información de Akaike}, el modelo que cuenta con el menor valor es el modelo $ARIMA(1,0,0)$, por lo cual ese es el
+modelo que ocuparemos para realizar las pruebas sobre los supuestos y, en el caso de que los supuestos se cumplan, el modelo que podremos ocupar para realizar el pronóstico de la serie.
+Podemos ocupar la función \textit{summary()} sobre el modelo seleccionado para observar las estimaciones de los parámetros del modelo:
+
+<<echo = FALSE>>=
+summary(ModB_ARIMA)
+@
+
+Con lo anterior, calculamos los parámetros a través de \textit{mínimos cuadrados}.Con la ayuda de R obtuvimos la estimación de esos parámetros así que tenemos que el modelo matemáticamente de
+$ARIMA(1,0,0)=AR(1)$ esta dado de la siguiente manera: 
+\begin{align*}
+Y_t&=\Phi _0 +\Phi _1Y_{t-1}+\varepsilon _t \\ Y_t&=1289609.65+0.6152Y_{t-1}+\varepsilon _t
+\end{align*}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+\subsection{SARIMA(p,d,q)(P,D,Q)[m] }
+Una manera de poder obtener de forma automática un modelo adecuado es usando la función \textit{auto.arima()}, con lo cual obtenemos lo siguiente:
+<<echo=FALSE >>=
+auto.arima(Maiz_ts)
+@
+
+\subsubsection{Correlograma $ACF$ y $PACF$ del modelo ARIMA(1,0,0) }
+
+<<echo=FALSE>>=
+layout(1:2) #Para que me coloque en 1 columna dos gráficas
+acf(ts(ModB_ARIMA$residuals), 50 ,
+    main = "Correlograma simple del modelo ARIMA(1,0,0)")
+pacf(ts(ModB_ARIMA$residuals), 50 ,
+    main = "Correlograma parcial del modelo ARIMA(1,0,0)")
+@
+Tanto en el Correlograma Simple, como el en Correlograma Parcial existen valores signficativo $\varphi $. Este tipo de comportamiento en los correlogramas indican que aún hay factores que no están considerando en los modelos y afectan de manera importante el comportamiento de la serie temporal.  \\ 
+Es importante observar que, de acuerdo con el correlograma simple, los valores fuera del intervalo representan un comportamiento similar, ya que se repiten cada determinado tiempo de acuerdo al rezago de la serie, en este caso, cada múltiplo del rezago $12$. \textbf{Este tipo de comportamiento es bastante común en las series temporales que presentan un comportamiento estacional;} es decir, que tiene un efecto temporal que se repite cada determinado período.  \\ 
+Para poder estimar modelos que consideren el comportamiento estacional de las series podemos ocupar los modelos $SARIMA$. Para incorporar el comportamiento estacional de la serie, podemos anexar un factor de diferenciación adicional al de integración, con el fin de diferencial de acuerdo con el componente estacional. Para empezar a estimar modelos $SARIMA$, propongo realizar $1$ diferencia estacional que se le deberá aplicar a la serie (lo que significa que debemos de diferenciar sobre $12$ unidades, ya que la serie es una serie mensual).  \\ 
+De acuerdo a lo anterior, propongo $9$ propuestas de modelos SARIMA en donde únicamente variaremos el número de valores Autorregresivos y Medias Móviles, así como el orden de integración normal del modelo.
+<<>>=
+ndiffs(Maiz_ts) # Nos da el número de diferenciación ordinaria
+nsdiffs(Maiz_ts) #Nos da el número de diferenciación estacional
+@
+
+\subsection*{Modelos SARIMA(p,d,q)(P,D,Q) propuestos}
+<<>>=
+SARIMA_1<- arima(Maiz_ts,order=c(1,1,1), seasonal = list(order=c(0,1,1)))
+SARIMA_2<- arima(Maiz_ts,order=c(0,1,1), seasonal = list(order=c(0,1,1)))
+SARIMA_3<- arima(Maiz_ts,order=c(1,1,0), seasonal = list(order=c(0,1,1)))
+SARIMA_4<- arima(Maiz_ts,order=c(1,1,1), seasonal = list(order=c(1,1,1)))
+SARIMA_5<- arima(Maiz_ts,order=c(0,1,1), seasonal = list(order=c(1,1,1)))
+SARIMA_6<- arima(Maiz_ts,order=c(1,1,0), seasonal = list(order=c(1,1,1)))
+SARIMA_7<- arima(Maiz_ts,order=c(1,1,1), seasonal = list(order=c(1,1,0)))
+SARIMA_8<- arima(Maiz_ts,order=c(0,1,1), seasonal = list(order=c(1,1,0)))
+SARIMA_9<- arima(Maiz_ts,order=c(1,1,0), seasonal = list(order=c(1,1,0)))
+@
+Vamos a utilizar el mejor modelo de acuerdo con los \textbf{Criterios de Información.}
+
+\subsubsection{Criterios de Información}
+<<>>=
+SARIMA_1$aic
+SARIMA_2$aic
+SARIMA_3$aic
+SARIMA_4$aic
+SARIMA_5$aic
+SARIMA_6$aic
+SARIMA_7$aic
+SARIMA_8$aic
+SARIMA_9$aic
+@
+
+\textbf{Conclusión:}  De acuerdo a los resultados de cada modelo, el mejor modelo obtenido es el modelo $SARIMA(1,1,1)(1,1,1)[12]$.
+
+<<echo=FALSE>>=
+layout(1:2)
+acf(ts(SARIMA_4$residuals), 50 ,
+    main = "Correlograma simple del modelo SARIMA(1,1,1)(1,1,1)[12]")
+pacf(ts(SARIMA_4$residuals), 50 ,
+    main = "Correlograma parcial del modelo ARIMA(1,1,1)(1,1,1)[12]")
+@
+En esta ocasión observamos que en el Correlograma Simple, como el en Correlograma Parcial solamente hay un valor $\varphi $ significativo, pero es muy muy mínimo. Así que en esta ocasión nuestro modelo se ajusta muy bien.
+
+\subsubsection{Diagnostico del modelo SARIMA(1,1,1)(1,1,1)[12]}
+<<echo=FALSE>>=
+tsdiag(SARIMA_4)
+@
+En la gráfica podemos ver los p-valor de \textbf{Ljung Box}, en donde recordemos que si el $P-valor > 0,05$, entonces hay \textbf{Ruido Blanco.} \\ 
+Dado lo anterior, vemos que el modelo dado tiene \textit{Ruido Blanco}, con
+esto concluimos que se ajusta bien. 
+También podemos notar que la gráfica de $ACF$ no hay valores de significancia (afuera de la franja azul), esto quiere decir que no hay correlación en los errores, es decir:
+$$corr(\varepsilon_t , \varepsilon_{t-k})=0$$
+Para todo $k\geq 1$ que pertenezca a los no. Naturales.
+
+\subsubsection{Gráfico de Raíces Unitarias }
+
+<<echo=FALSE>>=
+autoplot(SARIMA_4)+theme_gray()
+@
+
+Las raíces del proceso $SARIMA(1,1,1)(1,1,1)$ en el modelo propuesto se encuentran dentro del \textit{círculos unitario} en el caso de $AR$, pero en las del modelo $MA$ están justo en la raya del círculo.
+Una vez comprobado este supuesto, podremos continuar con realizar los supuestos sobre los errores de las estimaciones del modelo. El cumplimiento
+de los supuestos básicos sobre los residuos es de suma importancia para el uso de pronósticos con modelos de series de tiempo, debido a que lo que se busca es que no exista ( o que al menos no de manera importante) ninguna variable determinista que pueda afectar al modelo, dejando ''limpia'' esa
+variable, y por lo tanto, lo que sobre sea una variable \textbf{ puramente aleatoria}. Para esto, tendremos que contrastar con unas últimas pruebas si estos errores se distribuyen o no de manera \textbf{normal}. Como una
+primera impresión, podemos ocupar la función \textit{ checkresiduals()} .
+<<echo=FALSE>>=
+checkresiduals(SARIMA_4)
+@
+Al utilizar la función, podemos apreciar una imagen que cuenta con 3 gráficas útiles:
+\begin{enumerate}
+\item . Gráfica de los residuos: Podemos contrastar que, en efecto, los errores se mantienen en una media constate igual a cero, y dentro de unos intervalos de varianza entre 250000 y −250000.
+\item Histograma junto con una gráfica de distribución: Observamos que la serie tiene un comportamiento ligeramente normal, ya que no presenta un importante sesgo ni una fuerte curtosis.
+\end{enumerate}
+
+
+ Para contrastar el cumplimiento del supuesto de \textbf{
+ NO autocorrelación}, realizamos la prueba \textbf{ Ljung-Box} sobre los errores.
+
+\subsection*{Prueba Ljung-Box}
+\begin{align*}
+H_0&: \textit{Ruido Blanco.} \\
+H_a&:\textit{No hay Ruido Blanco.}
+\end{align*} 
+
+<<echo=FALSE>>=
+Box.test(SARIMA_4$residuals , type = "Ljung-Box")
+@
+
+
+Al realizar la prueba Ljung-Box sobre los residuos del modelo, con un p-valor mucho mayor al 0.05 nivel de significancia, podemos \textbf{aceptar la hipótesis nula $H_0$} de que la serie no tiene problemas de auto-correlación.
+
+\subsubsection{Pruebas de Normalidad}
+Para realizar la prueba de normalidad, vamos a proponer dos pruebas estadísticas:
+\begin{enumerate}
+\item Prueba de Jarque-Bera.
+\item  Prueba de Shapiro.
+\end{enumerate}
+
+
+Las pruebas están dadas de la siguiente manera:
+\begin{itemize}
+\item $H_0:$ Los datos se comportan como una distribución normal.
+\item $H_a:$ Los datos NO se comportan como una distribución normal.
+\end{itemize}
+
+
+
+El uso de las pruebas, al igual que el uso de las pruebas de raíces unitarias, servirán para confirmar de mejor manera el cumplimiento o el incumplimiento del supuesto de normalidad de la serie. Lo anterior lo hacemos de la siguiente manera:
+
+<<echo=FALSE>>=
+Error = residuals(SARIMA_4) #Errores utilizando SARIMA
+autoplot(Error)+geom_hline(yintercept = 0, lty = 2, color ="blue")+
+  labs(title = "Errores del modelo SARIMA(1,1,1)(1,1,1)[12]", x="Meses", y= " ")+theme_bw()
+@
+
+
+\subsection*{ Prueba de Jarque-Bera}
+
+En estadística, \textbf{la prueba de Jarque-Bera} es una prueba de bondad de ajuste para comprobar si una muestra de datos tienen la asimetría y la curtosis de una distribución normal
+<<echo=FALSE>>=
+jarque.bera.test(SARIMA_4$residuals)
+@
+
+El resultado de la prueba, al igual que otros contrastes que hemos mencionado, se puede confirmar observando el $p-valor$ obtenido. De acuerdo con los resultados de la prueba, con un p-valor mayor al 0.05, \textbf{Se Acepta la hipótesis nula de normalidad ($H_0$)} sobre los residuos del modelo seleccionado. Confirmamos que \textbf{el modelo tiene residuos que se distribuyen de manera normal.} \\ 
+Por otra parte, procedemos a confirmar el supuesto de normalidad sobre los residuos utilizando de manera paralela la \textbf{prueba de Shapiro.}
+\subsection*{ Prueba de Shapiro-Wilk }
+
+La Prueba de Shapiro-Wilk se usa para contrastar la normalidad de un conjunto de datos.
+
+<<echo=FALSE>>=
+shapiro.test(SARIMA_4$residuals)
+@
+
+
+El p-valor de la prueba, con un valor de $0.4401$, mucho mayor al nivel de significancia del $0.05$,\textbf{ se acepta la hipótesis nula ($H_0$) de normalidad sobre los residuos del modelo} $SARIMA(1,1,1)(1,1,1)[12]$.
+\subsubsection{Contraste de normalidad con Q-Q plot }
+<<echo=FALSE>>=
+qqnorm(SARIMA_4$residuals)
+qqline(SARIMA_4$residuals, col = "2")
+@
+
+
+
+
+
+
+\subsubsection*{Prueba de Dickey-Fuller Aumentada a residuos de SARIMA(1,1,1)(1,1,1)[12] }
+<<echo=FALSE>>=
+adf.test(SARIMA_4$residuals)
+@
+
+
+Podemos observar que la gran mayoría de puntos se alinean dentro de los datos simulados normales,
+de tal manera que se confirmar que los residuos de la serie presentan una distribución normal, con una media igual a cero $E[\varepsilon =0]$ y una varianza constante $Var[\varepsilon ]=c$. Con estas pruebas podemos confirmar que los pronósticos que arrojara el modelo serán los más eficientes posibles.
+
+\textbf{Conclusión:} El modelo $AR(1,1,1)(1,1,1)[12]$ es eficiente para poder hacer un pronóstico.
+
+
+\subsection{Pronósticos}
+\subsubsection{Predicción usando la función ETS() de R}
+<<echo=FALSE>>=
+Suavizado_Maiz_R <- ets(Maiz_ts, model = "ZZZ")
+Pronostico_Maiz_ETS  <- forecast(Suavizado_Maiz_R, h=60)  # Hace el pronóstico de 1 año
+Pronostico_Maiz_ETS
+plot(Pronostico_Maiz_ETS)  #Nos hace la gráfica
+Pronostico_Maiz_ETS  <- data.frame(Pronostico_Maiz_ETS)
+Pronostico_Maiz_ETS_ts <- ts(Pronostico_Maiz_ETS$Point.Forecast, frequency = 12, star = c(2022,3)) #Primer Pronóstico
+@
+
+
+\subsubsection{Predicción usando Holt Winter}
+<<echo=FALSE>>=
+Maiz_H_W  <- HoltWinters(Maiz_ts)
+prediccion_H_W =predict(Maiz_H_W,60)
+prediccion_H_W
+Pronostico_H_W <- ts(data.frame(predict(Maiz_H_W,60)), frequency = 12,
+                     star =c(2022,3))
+plot(Pronostico_H_W)
+@
+
+\subsubsection{Predicción usando Auto.Arima()}
+<<echo=FALSE>>=
+Arima_automatico_R <- auto.arima(Maiz_ts, lambda = "auto")
+Pronostico_auto_Arima <- forecast(Arima_automatico_R, h=60)
+Pronostico_auto_Arima
+autoplot(Pronostico_auto_Arima )
+Pronostico_auto_Arima <- data.frame(Pronostico_auto_Arima)
+Pronostico_auto_Arima_ts <- ts(Pronostico_auto_Arima$Point.Forecast, frequency = 12, star = c(2022,3)) #Tercer Pronóstico
+@
+\subsubsection{Predicción usando SARIMA(1,1,1)(1,1,1)[12]}
+<<>>=
+SARIMA_4<- arima(Maiz_ts,order=c(1,1,1), seasonal = list(order=c(1,1,1)))
+Pronostico_SARIMA <- forecast(SARIMA_4, h=60)
+Pronostico_SARIMA
+autoplot(Pronostico_SARIMA )
+Pronostico_SARIMA <- data.frame(Pronostico_SARIMA)
+Pronostico_SARIMA_ts <- ts(Pronostico_SARIMA$Point.Forecast, frequency = 12,
+                           start =c(2022,3))
+@
+\subsubsection*{Unión de Pronósticos}
+<<echo=FALSE>>=
+Pronosticos <- cbind(Pronostico_Maiz_ETS_ts,Pronostico_auto_Arima_ts,
+                    Pronostico_H_W,Pronostico_SARIMA_ts) #Para graficar los pronósticos
+Pronosticos_tabla <- data.frame(Pronosticos)
+Fecha <- read.csv("Fechas_prediccion.csv")
+Pronosticos_tabla["Fecha"]=Fecha
+Pronosticos_tabla = Pronosticos_tabla[,c(5,1:4)]
+Pronosticos_tabla
+@
+
+\subsubsection{Gráfica de los pronósticos}
+<<echo=FALSE>>=
+plot(Pronosticos, plot.type = "single", col = c("red", "blue","black","yellow"),
+lwd=1:1, lty=1:1, ylab = "Total de Maiz", xlab="Tiempo (meses)",
+main="Pronosticos")
+legend(x="topleft", legend=c("Pronostico_Maiz_ETS_ts",
+                             "Pronostico_auto_Arima_ts",
+                            "Pronostico_H_W","Pronostico_SARIMA_ts"),
+       col = c("red", "blue","black","yellow"), lty=1:1)
+@
+
+
+
+
+
+\end{document}
